@@ -1,6 +1,6 @@
 %define name pastebin
 %define version 1.0
-%define release %mkrel 3
+%define release %mkrel 4
 
 Summary: A tool to send data to pastebin 
 Name: %{name}
