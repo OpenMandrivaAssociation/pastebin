@@ -1,13 +1,13 @@
 %define name pastebin
 %define version 1.0
-%define release %mkrel 4
+%define release %mkrel 5
 
 Summary: A tool to send data to pastebin 
 Name: %{name}
 Version: %{version}
 Release: %{release}
 Source0: %{name}
-License: GPL
+License: GPLv2+
 Group: Text tools
 Url: http://raphael.slinckx.net/files/%{name}
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
