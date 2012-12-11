@@ -1,0 +1,244 @@
+#!/usr/bin/env python
+#
+# pastebin, a script to upload a file to pastebin.ca from the console.
+#
+# Copyright (C) 2005 Raphael Slinckx <raphael@slinckx.net>
+#     Thanks to Gustavo J. A. M. Carneiro  <gjc@gnome.org>
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+#
+
+import getopt, sys, urllib, urllib2, re, pwd, os
+try:
+	import pygtk
+	pygtk.require("2.0")
+	import gtk
+	import gobject
+	WITH_GTK = True
+except ImportError:
+	WITH_GTK = False
+
+try:
+	import gnomevfs, gtksourceview
+	WITH_GNOMEVFS = True
+except ImportError:
+	WITH_GNOMEVFS = False
+		
+# General Constants
+TYPES = [
+"raw", "asterisk", "c", "cpp", "php", "perl", "java", "vb", "csharp",
+"ruby", "python", "pascal", "mirc", "pli", "xml", "sql", "scheme",
+"ascript", "ada", "apache", "nasm", "asp", "bash", "css", "delphi", "html", "js",
+"lisp", "lua", "asm", "objc", "vbnet" ]
+
+NAME_TYPE_DICT = {
+"HTML"   : "html",   "CSS" : "css",    "JavaScript" : "js",    "sh"  : "bash", 
+"Python" : "python", "PHP" : "php",    "Perl"       : "perl",  "SQL" : "sql",
+"C"      : "c",      "Ada" : "ada",    "Lua"        : "lua",   "C++" : "cpp",
+"Pascal" : "pascal", "C#"  : "csharp", "XML"        : "xml",
+"VB.NET" : "vbnet",  "Java": "java",   "Ruby"       : "ruby" }
+
+EXPIRATIONS = [
+"", "5 minutes", "10 minutes", "15 minutes", "30 minutes", "45 minutes",
+"1 hour", "2 hours", "4 hours", "8 hours", "12 hours", "1 day", "2 days",
+"3 days", "1 week", "2 weeks", "3 weeks", "1 month", "2 months", "3 months",
+"4 months", "5 months", "6 months", "1 year" ]
+
+POSTDATA = "content=%(content)s&description=%(description)s&type=%(type)s&expiry=%(expiry)s&name=%(name)s&save=0&s=Submit+Post"
+URL = "http://en.pastebin.ca/index.php"
+URL_PATTERN = re.compile('http://en.pastebin.ca/\d+')
+
+RAW_MODE = False
+
+# The Meat
+def got_pastebin_url(url):
+	print url
+	
+	if WITH_GTK:
+		gtk.clipboard_get(gtk.gdk.SELECTION_CLIPBOARD).set_text(url)
+		gobject.timeout_add(1000, gtk.main_quit)
+		gtk.main()
+	
+def paste(content, description="", name="", expiry="", type="raw"):
+	payload = POSTDATA % {
+		"content" : urllib.quote_plus(content),
+		"description" : urllib.quote_plus(description),
+		"type" : TYPES.index(type)+1,
+		"expiry" : urllib.quote_plus(expiry),
+		"name" : urllib.quote_plus(name)
+		}
+	req = urllib2.Request(URL, payload, {
+		"Referer": "http://en.pastebin.ca/",
+		"Content-Type": "application/x-www-form-urlencoded",
+		"User-Agent": "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.7.10) Gecko/20050813 Epiphany/1.7.6",
+		"Accept-Language": "en",
+		"Accept-Charset": "utf-8",
+		})
+	return urllib2.urlopen(req).read()
+
+def got_error(err):
+	sys.stderr.write("%r\n" % err)
+
+def got_page(res):
+	matches = URL_PATTERN.findall(res)
+	if len(matches) > 0:
+		match = matches[0]
+		if RAW_MODE:
+			got_pastebin_url(match.replace("pastebin.ca/","pastebin.ca/raw/"))
+		else:
+			got_pastebin_url(match)
+	else:
+		sys.stderr.write("Could not retreive pastebin url\n")
+		
+def usage():
+	print """=== Pastebin: Usage
+$ pastebin [OPTIONS] [FILE]
+
+Print the pastebin.ca URL of the input file
+
+If FILE is omitted content is read from standard input
+OPTIONS:
+	-h, --help			Print this help notice.
+	-r, --raw			Retreive raw text URL (default=off).
+	-d, --description	The description of the content (default=empty).
+	-m, --message		Same as description
+	-n, --name			Your name (default=your unix username).
+	-l, --lines			The line numbers to send starting at 1 (default=1,0)
+						Ex: 1,12 or 12,36 or 45 or 45,0
+	-t, --type			The type of the content (default="raw")
+	
+	Type can be one of:
+	raw, asterisk, c, cpp, php, perl, java, vb, csharp,
+	ruby, python, pascal, mirc, pli, xml, sql, scheme,
+	ascript, ada, apache, nasm, asp, bash, css, delphi, html, js,
+	lisp, lua, asm, objc, vbnet
+	
+	If type is not specified, an attempt to auto-detect type is made,
+	based on file data/extension. Detection is more reliable when giving FILE
+	argument than piping directly. This needs modules gnomevfs and gtksourceview
+	
+	If you have module gtk, the pastebin url will be placed in your clipboard,
+	you can then paste it with ctrl-v as usual.
+"""
+
+if __name__ == "__main__":
+	if WITH_GNOMEVFS:
+		man = gtksourceview.SourceLanguagesManager()
+	else:
+		man = None
+	 
+	# Default Values
+	content = ""
+	description = ""
+	name = pwd.getpwuid(os.getuid())[0]
+	expiry = ""
+	type = "raw"
+	start = 1
+	end = 0
+
+	try:
+		opts, args = getopt.getopt(sys.argv[1:], "hrd:m:n:t:l:", ["help", "raw", "description=", "message=", "name=", "type=", "lines="])
+	except getopt.GetoptError:
+		usage()
+		sys.exit()
+	
+	for o, a in opts:
+		if o in ("-h", "--help"):
+			usage()
+			sys.exit()
+		if o in ("-l", "--lines"):
+			#Parse the line numbers
+			try:
+				lines = a.split(",")
+				if len(lines) == 2:
+					if lines[0] != "" and lines[1] != "":
+						start = int(lines[0])
+						end = int(lines[1])
+					elif lines[0] == "" and lines[1] != "":
+						start = 1
+						end = int(lines[1])
+					elif lines[0] != "" and lines[1] == "":
+						start = int(lines[0])
+						end = 0
+				elif len(lines) == 1:
+					start = int(lines[0])
+			except Exception:
+				start = 1
+				end = 0
+				
+			if start > end and end != 0 or start < 1 or end < 0:
+				sys.stderr.write('Error with lines numbers, start:%d end:%d\n' % (start, end))
+				sys.exit()
+	
+	# Open the file, and read content.
+	f = None
+	try:
+		if len(args) == 0:
+			f = sys.stdin
+		else:
+			f = file(args[0], 'r')
+
+		lines = None
+		if end == 0:
+			lines = f.readlines()[start-1:]
+		else:
+			lines = f.readlines()[start-1:end]
+			
+		content = ''.join(lines)
+		f.close()
+	except Exception, msg:
+		sys.stderr.write('Error while reading the file: %s\n' % msg)
+		sys.exit()
+
+	# Try to guess file content type if given, and we have GNOMEVFS
+	if WITH_GNOMEVFS:
+		mimes = [gnomevfs.get_mime_type_for_data(content)]
+		if len(args) > 0:
+			mimes.append(gnomevfs.get_mime_type(os.path.abspath(args[0])))
+			
+		for mime in mimes:
+			lang = man.get_language_from_mime_type(mime)
+			if lang != None:
+				name = lang.get_name()
+				try:
+					type = NAME_TYPE_DICT[name]
+					sys.stderr.write('Using source type "%s"\n' % type)
+				except KeyError:
+					sys.stderr.write('No pastebin langage matching name "%s"\n' % name)
+				
+	# Parse options
+	for o, a in opts:
+		if o in ("-r", "--raw"):
+			RAW_MODE = True
+		elif o in ("-d", "--description") or o in ("-m", "--message"):
+			description = a
+		elif o in ("-n", "--name"):
+			name = a
+		elif o in ("-t", "--type"):
+			type = a
+
+	#Parameter validation
+	if content.strip() == "":
+		sys.stderr.write('Content Empty: "%s"\n' % content)
+		sys.exit()
+	elif not type in TYPES:
+		sys.stderr.write('Unknown type: %s\n' % type)
+		sys.exit()
+
+	try:
+		res = paste(content, description, name, expiry, type)
+		got_page(res)
+	except Exception, msg:
+		got_error(msg)
