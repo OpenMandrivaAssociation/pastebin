@@ -9,7 +9,7 @@ Release:	%{release}
 Source0:	%{name}
 License:	GPLv2+
 Group:		Text tools
-Url:		http://raphael.slinckx.net/files/%{name}
+Url:		https://raphael.slinckx.net/files/%{name}
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-buildroot
 BuildArch:	noarch
 Requires:	python
